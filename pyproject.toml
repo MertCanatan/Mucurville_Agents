@@ -1,0 +1,14 @@
+[project]
+name = "mucurville-agents"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "geopy>=2.4.1",
+    "ipykernel>=6.29.5",
+    "langchain[anthropic]>=0.3.25",
+    "langgraph>=0.4.5",
+    "polyline>=2.0.2",
+    "python-dotenv>=1.1.0",
+]
