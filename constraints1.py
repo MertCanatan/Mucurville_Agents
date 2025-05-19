@@ -1,0 +1,3 @@
+def apply_constraints(task_list, df_d, df_p):
+    # Annotate tasks with known constraints (fixed times, fixed locations, etc.)
+    ...
