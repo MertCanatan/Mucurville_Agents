@@ -1,3 +1,4 @@
+from agent1 import plan_day
 # this file integrate the standalone agent2 into the entire agentic system that incorporates agents 1 and 3 as well.
 from typing import Annotated, Dict, List, Optional, Any
 from typing_extensions import TypedDict
@@ -69,17 +70,36 @@ class SystemState(TypedDict):
 def planner_agent(state: SystemState) -> SystemState:
     """Agent 1 plans the tasks and categorizes them"""
     print("Agent 1 (Planner) is processing...")
-    
-    # This would have the logic for Agent 1
-    # For demonstration purposes, we'll just pass through
-    
-    return {
-        "current_agent": "geolocator",
-        "agent_messages": {
-            **state.get("agent_messages", {}),
-            "planner": ["Tasks have been prioritized and categorized"]
+
+    try:
+        raw_tasks = state.get("tasks", [])
+        user_data = state.get("user_data", {})
+        preferences = user_data.get("preferences", {})
+        device_data = state.get("device_data", {}) if "device_data" in state else {}
+
+        # Run the planner logic
+        prioritized_tasks = plan_day(raw_tasks, df_d=device_data, df_p=preferences)
+
+        state["tasks"] = prioritized_tasks
+
+        return {
+            **state,
+            "current_agent": "geolocator",
+            "agent_messages": {
+                **state.get("agent_messages", {}),
+                "planner": ["Tasks have been planned, prioritized, and categorized"]
+            }
         }
-    }
+    except Exception as e:
+        print(f"Planner Agent Error: {e}")
+        return {
+            **state,
+            "current_agent": "geolocator",
+            "agent_messages": {
+                **state.get("agent_messages", {}),
+                "planner": [f"Error during planning: {e}"]
+            }
+        }
 
 # Agent 2: Geolocator Functions
 def geolocator_agent(state: SystemState) -> SystemState:
