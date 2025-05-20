@@ -11,14 +11,13 @@ import os
 from datetime import datetime, timedelta
 from geopy.geocoders import Nominatim
 from geopy.distance import distance
+import os
+import json
+import requests
 
 # This is a simplified integration example showing how Agent 2 fits into the multi-agent system
-
-# Load environment variables
-load_dotenv()
-
 # Initialize LLM
-llm = init_chat_model("anthropic:claude-3-5-sonnet-latest")
+llm = init_chat_model("anthropic:claude-3-5-sonnet-latest",api_key = "PROVIDED_API_KEY")
 
 # Define common models
 class UserPreferences(BaseModel):
@@ -232,6 +231,131 @@ def reasoner_agent(state: SystemState) -> SystemState:
     
     # This would have the logic for Agent 3
     # For demonstration purposes, we'll just pass through
+
+    get_schedule = state.get("schedule", [])
+    travel_info = state.get("travel_info", [])
+    locations = state.get("locations", [])
+    user_data = state.get("user_data", {})
+    preferences = user_data.get("preferences", {})
+
+    print("Current Schedule:")
+    for item in get_schedule:   
+        start_time = item.start_time.strftime("%H:%M")
+        end_time = item.end_time.strftime("%H:%M")
+        task_id = item.task_id
+        location = item.location.name if item.location else "Unknown"
+        
+        print(f"{start_time} - {end_time}: Task {task_id} at {location}")
+    print("Travel Info:")
+    for info in travel_info:
+        print(f"From {info.from_task_id} to {info.to_task_id}: {info.travel_time_minutes} minutes, {info.distance_km:.2f} km")
+    print("Locations:")
+    for loc in locations:
+        print(f"{loc.name}: {loc.lat}, {loc.lng}")
+    print("User Preferences:")
+    print(preferences)
+
+    llm_response_string = llm.invoke(
+        f'''You are the best reasoning agent. You will be presented a schedule and list of preferences of a person. Some of the tasks have fixed timelines. Your job is to judge whether the schedule is feasible based on the travel times between tasks and the locations of the tasks. Also consider the user preferences. The tasks are as follows:\n{get_schedule}\nThe travel times are as follows:\n{travel_info}\nThe locations are as follows:\n{locations}\nThe user preferences are as follows\n{preferences}. If the schedule is feasible, return 'yes'. If not, return 'no' and suggest an optimized schedule.
+        e.g. {{
+            'is_feasible': 'yes',
+            'schedule': {{
+                'task_id': 'task1',
+                'start_time': '2025-05-20 09:00:00',
+                'end_time': '2025-05-20 09:30:00',
+                'location': 'Grocery Store'
+            }},
+            'travel_info': {{
+                'from_task_id': 'task1',            
+                'to_task_id': 'task2',
+                'travel_time_minutes': 16,
+                'distance_km': 8.29
+
+            }},
+            'locations': {{
+                'name': 'Grocery Store',
+                'address': 'Ferry Building, San Francisco, CA'
+            }},
+            'user_preferences': {{
+                'preferred_transit_modes': ['driving', 'walking'],
+                'max_travel_time': 30,
+                }}      
+        }}''')
+         # Simulate LLM response 
+
+
+    #llm_response_string = """content='{\n    "feasible": "yes",\n    "schedule": [\n        {\n            "task_id": "task1",\n            "start_time": "2025-05-20 09:00:00",\n            "end_time": "2025-05-20 09:30:00",\n            "location": "Grocery Store"\n        },\n        {\n            "task_id": "task2",\n            "start_time": "2025-05-20 09:46:00",\n            "end_time": "2025-05-20 10:46:00",\n            "location": "Medical Center"\n        }\n    ],\n    "travel_info": [\n        {\n            "from_task_id": "task1",\n            "to_task_id": "task2",\n            "travel_time_minutes": 16,\n            "distance_km": 8.29,\n            "transit_mode": "driving"\n        }\n    ],\n    "locations": [\n        {\n            "name": "Grocery Store",\n            "address": "Ferry Building, San Francisco, CA"\n        },\n        {\n            "name": "Medical Center",\n            "address": "Golden Gate Park, San Francisco, CA"\n        }\n    ]\n}' additional_kwargs={} response_metadata={'id': 'msg_01M2PXzuxWgEbwnXegtuhabF', 'model': 'claude-3-5-sonnet-latest', 'stop_reason': 'end_turn', 'stop_sequence': None, 'usage': {'cache_creation_input_tokens': 0, 'cache_read_input_tokens': 0, 'input_tokens': 543, 'output_tokens': 307, 'server_tool_use': None}, 'model_name': 'claude-3-5-sonnet-latest'} id='run--1566431c-e3a3-41f0-a567-f659a2b09801-0' usage_metadata={'input_tokens': 543, 'output_tokens': 307, 'total_tokens': 850, 'input_token_details': {'cache_read': 0, 'cache_creation': 0}}"""
+
+    # 1. Extract the JSON string
+    # This assumes the format is always content='{...}'
+    # We need to find the first '{' and the last '}' and slice the string.
+    # A more robust way might be using regex if the 'content=' prefix is variable.
+    try:
+        json_start = str(llm_response_string).find('{')
+        json_end = str(llm_response_string).find('}') + 1
+        json_content_string = str(llm_response_string)[json_start:json_end]
+        print(f"Extracted JSON string: {json_content_string}")
+        json_content_string = json_content_string.replace(' ', '') # Replace non-breaking space with regular space
+
+        # 2. Parse the JSON string into a Python dictionary
+        parsed_data = json.loads(json_content_string)
+        # 3. Now you can access the data using dictionary keys
+        print(
+            f"Parsed JSON: {json_content_string}"
+        )
+
+        print(
+            f"Parsed data: {parsed_data}"
+        )
+
+        # Now you can access the data using dictionary keys
+        feasible = parsed_data.get('feasible')
+        schedule = parsed_data.get('schedule')
+        travel_info = parsed_data.get('travel_info')
+        locations = parsed_data.get('locations')
+
+        print(f"Feasible: {feasible}")
+        print("\nSchedule:")
+        for task in schedule:
+            print(f"  Task ID: {task.get('task_id')}")
+            print(f"  Start Time: {task.get('start_time')}")
+            print(f"  End Time: {task.get('end_time')}")
+            print(f"  Location: {task.get('location')}")
+            print("-" * 20)
+
+        print("\nTravel Info:")
+        for travel in travel_info:
+            print(f"  From Task ID: {travel.get('from_task_id')}")
+            print(f"  To Task ID: {travel.get('to_task_id')}")
+            print(f"  Travel Time (minutes): {travel.get('travel_time_minutes')}")
+            print(f"  Distance (km): {travel.get('distance_km')}")
+            print(f"  Transit Mode: {travel.get('transit_mode')}")
+            print("-" * 20)
+
+        print("\nLocations:")
+        for loc in locations:
+            print(f"  Name: {loc.get('name')}")
+            print(f"  Address: {loc.get('address')}")
+            print("-" * 20)
+
+    except json.JSONDecodeError as e:
+        print(f"Error decoding JSON: {e}")
+        print(f"Problematic string portion: {json_content_string}")
+    except Exception as e:
+        print(f"An unexpected error occurred: {e}")
+
+    #print(f"LLM Response: {llm_response_string}")
+
+
+    # For demonstration, we will just return the state as is
+    # Note: The LLM call is commented out for demonstration purposes
+    # In a real implementation, this would call the LLM to generate an optimized schedule
+    # For now, we'll just return the state as is
+    # Note: The LLM call is commented out for demonstration purposes
+    #response = llm.generate(messages=[{"role": "user", "content": "Optimize the schedule"}])
+
+
+    # Here you would implement the reasoning logic to optimize the schedule
     
     return {
         "current_agent": "done",
