@@ -1,15 +1,16 @@
 # this file integrate the standalone agent2 into the entire agentic system that incorporates agents 1 and 3 as well.
-from typing import Annotated, Dict, List, Optional, Any
-from typing_extensions import TypedDict
-from langgraph.graph import StateGraph, START, END
-from langgraph.graph.message import add_messages
-from langchain.chat_models import init_chat_model
-from pydantic import BaseModel, Field
-from dotenv import load_dotenv
 import os
 from datetime import datetime, timedelta
-from geopy.geocoders import Nominatim
+from typing import Annotated, Any, Dict, List, Optional
+
+from dotenv import load_dotenv
 from geopy.distance import distance
+from geopy.geocoders import Nominatim
+from langchain.chat_models import init_chat_model
+from langgraph.graph import END, START, StateGraph
+from langgraph.graph.message import add_messages
+from pydantic import BaseModel, Field
+from typing_extensions import TypedDict
 
 # This is a simplified integration example showing how Agent 2 fits into the multi-agent system
 
@@ -19,11 +20,13 @@ load_dotenv()
 # Initialize LLM
 llm = init_chat_model("anthropic:claude-3-5-sonnet-latest")
 
+
 # Define common models
 class UserPreferences(BaseModel):
     preferred_transit_modes: List[str] = Field(default_factory=list)
     preferred_times: Dict[str, Any] = Field(default_factory=dict)
     max_travel_time: Optional[int] = None
+
 
 class Location(BaseModel):
     name: str
@@ -31,6 +34,7 @@ class Location(BaseModel):
     lat: Optional[float] = None
     lng: Optional[float] = None
     is_fixed: bool = True
+
 
 class Task(BaseModel):
     id: str
@@ -41,11 +45,13 @@ class Task(BaseModel):
     constraints: Dict[str, Any] = Field(default_factory=dict)
     priority: str = "medium"  # low, medium, high
 
+
 class ScheduleItem(BaseModel):
     task_id: str
     start_time: datetime
     end_time: datetime
     location: Location
+
 
 class TravelInfo(BaseModel):
     from_task_id: str
@@ -53,6 +59,7 @@ class TravelInfo(BaseModel):
     travel_time_minutes: int
     distance_km: float
     transit_mode: str
+
 
 # State definitions for the multi-agent system
 class SystemState(TypedDict):
@@ -65,33 +72,35 @@ class SystemState(TypedDict):
     current_agent: str
     agent_messages: Dict[str, List]
 
+
 # Agent 1: Planner Functions
 def planner_agent(state: SystemState) -> SystemState:
     """Agent 1 plans the tasks and categorizes them"""
     print("Agent 1 (Planner) is processing...")
-    
+
     # This would have the logic for Agent 1
     # For demonstration purposes, we'll just pass through
-    
+
     return {
         "current_agent": "geolocator",
         "agent_messages": {
             **state.get("agent_messages", {}),
-            "planner": ["Tasks have been prioritized and categorized"]
-        }
+            "planner": ["Tasks have been prioritized and categorized"],
+        },
     }
+
 
 # Agent 2: Geolocator Functions
 def geolocator_agent(state: SystemState) -> SystemState:
     """Agent 2 handles geolocation and travel planning"""
     print("Agent 2 (Geolocator) is processing...")
-    
+
     # Initialize geolocator
     geolocator = Nominatim(user_agent="schedule_optimizer_demo")
 
     tasks = state.get("tasks", [])
     locations = state.get("locations", [])
-    
+
     # Simulate geocoding and location processing
     # geocoded_locations = []
     # for location in locations:
@@ -102,11 +111,15 @@ def geolocator_agent(state: SystemState) -> SystemState:
     #         location.lat = 37.7749  # Example latitude
     #         location.lng = -122.4194  # Example longitude
     #     geocoded_locations.append(location)
-    
+
     # Use real geopy for geocoding fixed locations with addresses
     updated_locations = []
     for location in locations:
-        if location.is_fixed and location.address and (not location.lat or not location.lng):
+        if (
+            location.is_fixed
+            and location.address
+            and (not location.lat or not location.lng)
+        ):
             try:
                 print(f"Geocoding address: {location.address}")
                 geocode_result = geolocator.geocode(location.address)
@@ -126,112 +139,143 @@ def geolocator_agent(state: SystemState) -> SystemState:
     #     travel_info.append(
     #         TravelInfo(
     #             from_task_id=tasks[0].id,
-    #             to_task_id=tasks[1].id, 
+    #             to_task_id=tasks[1].id,
     #             travel_time_minutes=15,
     #             distance_km=5.2,
     #             transit_mode="driving"
     #         )
     #     )
-    
+
     # Calculate travel times between consecutive tasks using geocoded locations
     travel_info = []
     # Ensure tasks are ordered for travel time calculation (assuming order matters)
-    ordered_tasks = sorted(tasks, key=lambda t: t.id) # Assuming task id implies order, adjust if needed
+    ordered_tasks = sorted(
+        tasks, key=lambda t: t.id
+    )  # Assuming task id implies order, adjust if needed
 
     for i in range(len(ordered_tasks) - 1):
         from_task = ordered_tasks[i]
         to_task = ordered_tasks[i + 1]
 
-        from_location = next((loc for loc in updated_locations if loc.name == from_task.location.name), None) # Assuming location name is unique enough
-        to_location = next((loc for loc in updated_locations if loc.name == to_task.location.name), None)
-        
-        if from_location and to_location and from_location.lat and from_location.lng and to_location.lat and to_location.lng:
+        from_location = next(
+            (loc for loc in updated_locations if loc.name == from_task.location.name),
+            None,
+        )  # Assuming location name is unique enough
+        to_location = next(
+            (loc for loc in updated_locations if loc.name == to_task.location.name),
+            None,
+        )
+
+        if (
+            from_location
+            and to_location
+            and from_location.lat
+            and from_location.lng
+            and to_location.lat
+            and to_location.lng
+        ):
             try:
                 dist = distance(
                     (from_location.lat, from_location.lng),
-                    (to_location.lat, to_location.lng)
+                    (to_location.lat, to_location.lng),
                 ).kilometers
-                
-                # Estimate travel time (very rough estimate - 30 km/h average speed)
-                travel_time_minutes = int(dist * 2) # ~30 km/h
 
-                travel_info.append(TravelInfo(
-                    from_task_id=from_task.id,
-                    to_task_id=to_task.id,
-                    travel_time_minutes=travel_time_minutes,
-                    distance_km=dist,
-                    transit_mode="driving" # Assuming driving for now
-                ))
-                print(f"Calculated travel from {from_task.name} to {to_task.name}: {travel_time_minutes} minutes ({dist:.2f} km)")
+                # Estimate travel time (very rough estimate - 30 km/h average speed)
+                travel_time_minutes = int(dist * 2)  # ~30 km/h
+
+                travel_info.append(
+                    TravelInfo(
+                        from_task_id=from_task.id,
+                        to_task_id=to_task.id,
+                        travel_time_minutes=travel_time_minutes,
+                        distance_km=dist,
+                        transit_mode="driving",  # Assuming driving for now
+                    )
+                )
+                print(
+                    f"Calculated travel from {from_task.name} to {to_task.name}: {travel_time_minutes} minutes ({dist:.2f} km)"
+                )
 
             except Exception as e:
-                 print(f"Error calculating travel time between {from_task.name} and {to_task.name}: {e}")
-
+                print(
+                    f"Error calculating travel time between {from_task.name} and {to_task.name}: {e}"
+                )
 
     # Create a simple draft schedule (keep existing logic but use updated locations)
     current_time = datetime.now().replace(hour=9, minute=0, second=0, microsecond=0)
     schedule = []
-    
+
     # Use ordered tasks for scheduling as well
     for i, task in enumerate(ordered_tasks):
         # Find the updated location for this task
-        task_location = next((loc for loc in updated_locations if loc.name == task.location.name), None)
+        task_location = next(
+            (loc for loc in updated_locations if loc.name == task.location.name), None
+        )
 
         schedule_item = ScheduleItem(
             task_id=task.id,
             start_time=current_time,
             end_time=current_time + timedelta(minutes=task.duration_minutes),
-            location=task_location or Location(name="Unknown", is_fixed=False) # Use updated location
+            location=task_location
+            or Location(name="Unknown", is_fixed=False),  # Use updated location
         )
         schedule.append(schedule_item)
-        
+
         # Update the time for the next task, including travel time
         current_time = schedule_item.end_time
         if i < len(ordered_tasks) - 1:
-            next_task = ordered_tasks[i+1]
-            travel = next((t for t in travel_info if t.from_task_id == task.id and t.to_task_id == next_task.id), None)
+            next_task = ordered_tasks[i + 1]
+            travel = next(
+                (
+                    t
+                    for t in travel_info
+                    if t.from_task_id == task.id and t.to_task_id == next_task.id
+                ),
+                None,
+            )
             if travel:
                 current_time += timedelta(minutes=travel.travel_time_minutes)
 
-    
     return {
-        "locations": updated_locations, # Return updated locations with coordinates
+        "locations": updated_locations,  # Return updated locations with coordinates
         "travel_info": travel_info,
         "schedule": schedule,
         "current_agent": "reasoner",
         "agent_messages": {
             **state.get("agent_messages", {}),
-            "geolocator": ["Locations geocoded and travel times calculated"]
-        }
+            "geolocator": ["Locations geocoded and travel times calculated"],
+        },
     }
+
 
 # Agent 3: Reasoner Functions
 def reasoner_agent(state: SystemState) -> SystemState:
     """Agent 3 optimizes the schedule based on constraints"""
     print("Agent 3 (Reasoner) is processing...")
-    
+
     # This would have the logic for Agent 3
     # For demonstration purposes, we'll just pass through
-    
+
     return {
         "current_agent": "done",
         "agent_messages": {
             **state.get("agent_messages", {}),
-            "reasoner": ["Schedule has been optimized"]
+            "reasoner": ["Schedule has been optimized"],
         },
         "messages": [
             {
-                "role": "assistant", 
-                "content": "I've processed your schedule and optimized it based on locations and travel times."
+                "role": "assistant",
+                "content": "I've processed your schedule and optimized it based on locations and travel times.",
             }
-        ]
+        ],
     }
+
 
 # Define agent router
 def route_to_next_agent(state: SystemState) -> Dict[str, Any]:
     """Route to the appropriate agent based on current_agent field"""
     current_agent = state.get("current_agent", "planner")
-    
+
     if current_agent == "planner":
         return {"next": "planner_agent"}
     elif current_agent == "geolocator":
@@ -240,6 +284,7 @@ def route_to_next_agent(state: SystemState) -> Dict[str, Any]:
         return {"next": "reasoner_agent"}
     else:
         return {"next": "end"}
+
 
 # Build the graph
 graph_builder = StateGraph(SystemState)
@@ -261,8 +306,8 @@ graph_builder.add_conditional_edges(
         "planner_agent": "planner_agent",
         "geolocator_agent": "geolocator_agent",
         "reasoner_agent": "reasoner_agent",
-        "end": END
-    }
+        "end": END,
+    },
 )
 
 # Connect agents back to router
@@ -282,10 +327,10 @@ example_tasks = [
         duration_minutes=30,
         location=Location(
             name="Grocery Store",
-            address="Ferry Building, San Francisco, CA", # Updated address for demo
-            is_fixed=True # Changed to fixed for geocoding demo
+            address="Ferry Building, San Francisco, CA",  # Updated address for demo
+            is_fixed=True,  # Changed to fixed for geocoding demo
         ),
-        priority="high"
+        priority="high",
     ),
     Task(
         id="task2",
@@ -294,27 +339,30 @@ example_tasks = [
         duration_minutes=60,
         location=Location(
             name="Medical Center",
-            address="Golden Gate Park, San Francisco, CA", # Updated address for demo
-            is_fixed=True # Changed to fixed for geocoding demo
+            address="Golden Gate Park, San Francisco, CA",  # Updated address for demo
+            is_fixed=True,  # Changed to fixed for geocoding demo
         ),
         constraints={"fixed_time": "2023-05-18T14:00:00"},
-        priority="high"
+        priority="high",
     ),
 ]
+
 
 # Example function to run the multi-agent system
 def run_scheduler_system(tasks=None):
     if tasks is None:
         tasks = example_tasks
-    
+
     locations = [task.location for task in tasks if task.location]
-    
+
     initial_state = {
-        "messages": [{"role": "user", "content": "Please optimize my schedule for today."}],
+        "messages": [
+            {"role": "user", "content": "Please optimize my schedule for today."}
+        ],
         "user_data": {
             "preferences": {
                 "preferred_transit_modes": ["driving", "walking"],
-                "max_travel_time": 30
+                "max_travel_time": 30,
             }
         },
         "tasks": tasks,
@@ -322,38 +370,41 @@ def run_scheduler_system(tasks=None):
         "schedule": [],
         "travel_info": [],
         "current_agent": "planner",
-        "agent_messages": {}
+        "agent_messages": {},
     }
-    
+
     result = graph.invoke(initial_state)
-    
+
     print("\nFinal Messages:")
     for message in result.get("messages", []):
         # Check the type of the message to determine the role
-        if hasattr(message, 'type'): # Use .type attribute if available (common in LangChain)
+        if hasattr(
+            message, "type"
+        ):  # Use .type attribute if available (common in LangChain)
             role = message.type
-        elif message.__class__.__name__ == 'HumanMessage':
-            role = 'user'
-        elif message.__class__.__name__ == 'AIMessage':
-            role = 'assistant'
+        elif message.__class__.__name__ == "HumanMessage":
+            role = "user"
+        elif message.__class__.__name__ == "AIMessage":
+            role = "assistant"
         else:
-            role = 'unknown'
+            role = "unknown"
         print(f"{role}: {message.content}")
-    
+
     print("\nAgent Messages:")
     for agent, messages in result.get("agent_messages", {}).items():
         print(f"{agent}: {', '.join(messages)}")
-    
+
     print("\nFinal Schedule:")
     for item in result.get("schedule", []):
         start_time = item.start_time.strftime("%H:%M")
         end_time = item.end_time.strftime("%H:%M")
         task_id = item.task_id
         location = item.location.name if item.location else "Unknown"
-        
+
         print(f"{start_time} - {end_time}: Task {task_id} at {location}")
-    
+
     return result
+
 
 if __name__ == "__main__":
     run_scheduler_system()
