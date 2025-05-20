@@ -1,2 +1,4 @@
+*.exe
 .env
+__pycache__*
 keys.py
