@@ -1,0 +1,13 @@
+=== Schedule ===
+- 1900-01-01 09:00:00 - 1900-01-01 10:00:00: Morning Meeting at Work
+- 1900-01-01 10:15:00 - 1900-01-01 11:00:00: Exercise at Home
+- 1900-01-01 13:00:00 - 1900-01-01 14:30:00: Grocery Shopping at Grocery Store
+- 1900-01-01 14:45:00 - 1900-01-01 15:30:00: Exercise at Home
+
+=== Agent Messages ===
+Planner:
+  - Tasks have been planned and prioritized
+Geolocator:
+  - Geolocation processing complete
+Reasoner:
+  - Optimization complete

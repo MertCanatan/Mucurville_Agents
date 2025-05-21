@@ -606,72 +606,6 @@ def run_schedule_optimizer(
         }
 
 # Example usage
-def save_results_to_file(result: Dict[str, Any], filename: str = "test_results.txt"):
-    """Save optimization results to a file.
-    
-    Args:
-        result: The result dictionary from run_schedule_optimizer
-        filename: The name of the file to save to
-    """
-    try:
-        with open(filename, 'w') as f:
-            # Write a header
-            f.write("=== Schedule Optimization Results ===\n\n")
-            
-            # Write schedule
-            f.write("OPTIMIZED SCHEDULE\n")
-            f.write("==================\n")
-            for item in result.get("schedule", []):
-                task = next((t for t in result.get("tasks", []) if t["id"] == item["task_id"]), {"name": "Unknown Task"})
-                location = next((l["name"] for l in result.get("locations", []) 
-                              if l["id"] == task.get("location_id", "")), "Unknown Location")
-                f.write(f"{item['start_time']} - {item['end_time']}: {task.get('name')} at {location}\n")
-            
-            # Write agent messages
-            f.write("\nAGENT MESSAGES\n")
-            f.write("==============\n")
-            for agent, messages in result.get("agent_messages", {}).items():
-                f.write(f"{agent.capitalize()}:\n")
-                for msg in messages:
-                    f.write(f"  - {msg}\n")
-            
-            # Write optimization feedback if available
-            if "optimization_result" in result and isinstance(result["optimization_result"], dict):
-                opt_result = result["optimization_result"]
-                if "optimization_feedback" in opt_result:
-                    f.write("\nOPTIMIZATION FEEDBACK\n")
-                    f.write("====================\n")
-                    f.write(f"{opt_result['optimization_feedback']}\n")
-                
-                if "optimization_adjustments" in opt_result:
-                    f.write("\nADJUSTMENTS\n")
-                    f.write("==========\n")
-                    adj = opt_result["optimization_adjustments"]
-                    f.write(f"Total travel time saved: {adj.get('total_travel_time_saved', 0):.1f} minutes\n")
-                    if adj.get("constraints_violated"):
-                        f.write(f"Constraints violated: {', '.join(adj['constraints_violated']) or 'None'}\n")
-                    if adj.get("preferences_met"):
-                        f.write(f"Preferences met: {', '.join(adj['preferences_met'])}\n")
-            
-            # Write travel info if available
-            travel_info = result.get("travel_info", [])
-            if travel_info:
-                f.write("\nTRAVEL INFORMATION\n")
-                f.write("==================\n")
-                for travel in travel_info:
-                    from_loc = next((l["name"] for l in result.get("locations", []) 
-                                   if l["id"] == travel.get("from_location_id", "")), "Unknown")
-                    to_loc = next((l["name"] for l in result.get("locations", []) 
-                                 if l["id"] == travel.get("to_location_id", "")), "Unknown")
-                    f.write(f"{from_loc} -> {to_loc}: {travel.get('travel_time_minutes', 0):.1f} min, "
-                           f"{travel.get('distance_km', 0):.1f} km\n")
-            
-            f.write("\n=== End of Report ===\n")
-            
-        print(f"\nResults have been saved to {filename}")
-    except Exception as e:
-        print(f"Error saving results to file: {str(e)}")
-
 if __name__ == "__main__":
     # Example data with real coordinates for New York City
     example_locations = [
@@ -719,7 +653,7 @@ if __name__ == "__main__":
             "id": "task2",
             "name": "Grocery Shopping",
             "description": "Weekly grocery shopping",
-            "duration_minutes": 60,  # Reduced from 90 to 60 minutes
+            "duration_minutes": 90,
             "location_id": "loc3",
             "priority": "medium",
             "constraints": {
@@ -731,30 +665,17 @@ if __name__ == "__main__":
         {
             "id": "task3",
             "name": "Exercise",
-            "description": "Morning workout",
+            "description": "Daily workout",
             "duration_minutes": 45,
             "location_id": "loc1",
             "priority": "high",
             "constraints": {
                 "time_windows": [
-                    {"start": "06:00", "end": "08:00"}
+                    {"start": "06:00", "end": "08:00"},
+                    {"start": "18:00", "end": "20:00"}
                 ]
             },
             "category": "health"
-        },
-        {
-            "id": "task4",
-            "name": "Reading",
-            "description": "Personal development reading time",
-            "duration_minutes": 45,
-            "location_id": "loc1",
-            "priority": "medium",
-            "constraints": {
-                "time_windows": [
-                    {"start": "18:00", "end": "22:00"}
-                ]
-            },
-            "category": "personal"
         }
     ]
     
@@ -764,10 +685,7 @@ if __name__ == "__main__":
         "preferred_work_days": ["monday", "tuesday", "wednesday", "thursday", "friday"],
         "preferred_categories_order": ["health", "work", "shopping", "personal"],
         "travel_mode": "driving",
-        "max_travel_time_minutes": 30,
-        "preferred_activities": {
-            "personal": ["reading", "meditation", "hobbies"]
-        }
+        "max_travel_time_minutes": 30
     }
     
     # Constraints
@@ -789,30 +707,37 @@ if __name__ == "__main__":
             max_iterations=3
         )
         
-        # Print results
-        print("\n=== Optimization Complete ===")
-        print(f"Completed in {result['iterations']} iterations")
+        # Generate output strings
+        output_lines = []
+        output_lines.append("=== Schedule ===")
         
-        print("\n=== Schedule ===")
         for item in result["schedule"]:
             task = next((t for t in result["tasks"] if t["id"] == item["task_id"]), None)
             if not task:
-                print(f"- {item['start_time']} - {item['end_time']}: Task {item['task_id']} (location not found)")
+                output_lines.append(f"- {item['start_time']} - {item['end_time']}: Task {item['task_id']} (location not found)")
                 continue
             
             # Get the location from the task's location_id
             location = next((l for l in result["locations"] if l["id"] == task.get("location_id")), None)
             location_name = location["name"] if location else "Unknown Location"
-            print(f"- {item['start_time']} - {item['end_time']}: {task['name']} at {location_name}")
+            output_lines.append(f"- {item['start_time']} - {item['end_time']}: {task['name']} at {location_name}")
         
-        print("\n=== Agent Messages ===")
+        output_lines.append("")
+        output_lines.append("=== Agent Messages ===")
         for agent, messages in result["agent_messages"].items():
-            print(f"{agent.capitalize()}:")
+            output_lines.append(f"{agent.capitalize()}:")
             for msg in messages:
-                print(f"  - {msg}")
+                output_lines.append(f"  - {msg}")
         
-        # Save results to file
-        save_results_to_file(result)
+        # Write to file
+        output_path = "schedule_results.txt"
+        with open(output_path, 'w') as f:
+            f.write('\n'.join(output_lines))
+        
+        # Print to console
+        print("\n=== Optimization Complete ===")
+        print(f"Results saved to {output_path}")
+        print('\n'.join(output_lines))
                 
     except Exception as e:
         print(f"Error during optimization: {str(e)}")

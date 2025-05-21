@@ -109,7 +109,9 @@ class GMILLM(LLM):
         
         # First, try to use the GMI Cloud API if the key is available
         api_key = os.getenv("GMI_API_KEY")
-        if api_key:
+        use_anthropic = False
+        
+        if api_key and not use_anthropic:
             try:
                 # GMI Cloud API endpoint from documentation
                 url = "https://api.gmi-serving.com/v1/chat/completions"
@@ -134,7 +136,7 @@ class GMILLM(LLM):
                 }
                 
                 print(f"Sending request to GMI Cloud API: {url}")
-                response = requests.post(url, headers=headers, json=payload, timeout=30)
+                response = requests.post(url, headers=headers, json=payload, timeout=10)  # Reduced from 30 to 10 seconds
                 response.raise_for_status()
                 response_json = response.json()
                 
@@ -173,6 +175,76 @@ class GMILLM(LLM):
                         print(f"Response body: {e.response.text}")
                     except:
                         print("Could not read response body")
+                # Mark to use Anthropic as fallback
+                use_anthropic = True
+        
+        # If GMI Cloud failed or we're forcing Anthropic, try Claude 3.5 Sonnet
+        if use_anthropic or not api_key:
+            anthropic_api_key = os.getenv("ANTHROPIC_API_KEY")
+            if anthropic_api_key:
+                try:
+                    print("Falling back to Anthropic Claude 3.5 Sonnet...")
+                    try:
+                        from anthropic import Anthropic
+                    except ImportError:
+                        print("anthropic package not found. Installing...")
+                        import sys
+                        import subprocess
+                        subprocess.check_call([sys.executable, "-m", "pip", "install", "anthropic"])
+                        from anthropic import Anthropic
+                    
+                    # Format the prompt for Claude
+                    system_prompt = """You are a helpful assistant that helps with task planning and prioritization. 
+                    Please respond with a valid JSON object containing a 'tasks' key with an array of tasks. 
+                    Each task should have 'id', 'category', 'fixed' (boolean), and 'priority' (high/medium/low) fields. 
+                    Only return the JSON, no other text or markdown formatting."""
+                    
+                    client = Anthropic(api_key=anthropic_api_key)
+                    response = client.messages.create(
+                        model="claude-3-5-sonnet-20240620",
+                        max_tokens=2000,
+                        temperature=0.7,
+                        system=system_prompt,
+                        messages=[
+                            {"role": "user", "content": prompt}
+                        ]
+                    )
+                    
+                    # Extract and clean the response
+                    content = response.content[0].text.strip()
+                    print(f"Claude raw response: {content[:500]}...")  # Print first 500 chars to avoid huge logs
+                    
+                    # Try to extract JSON if it's wrapped in markdown code blocks
+                    if '```json' in content:
+                        content = content.split('```json')[1].split('```')[0].strip()
+                    elif '```' in content:
+                        content = content.split('```')[1].split('```')[0].strip()
+                    
+                    # Validate the JSON
+                    try:
+                        parsed = json.loads(content)
+                        print("Successfully parsed Claude response as JSON")
+                        if isinstance(parsed, dict) and 'tasks' in parsed:
+                            return json.dumps(parsed['tasks'])
+                        return json.dumps(parsed)  # Return as JSON string for consistency
+                    except json.JSONDecodeError as e:
+                        print(f"Failed to parse Claude response as JSON: {str(e)}")
+                        print(f"Content that failed to parse: {content[:500]}...")
+                        # Try to extract just the JSON object if possible
+                        try:
+                            json_match = re.search(r'({.*})', content, re.DOTALL)
+                            if json_match:
+                                print("Extracted JSON from response")
+                                return json_match.group(0).strip()
+                        except Exception as e:
+                            print(f"Error extracting JSON from response: {str(e)}")
+                        
+                        # If we can't parse the response, raise an error
+                        raise ValueError(f"Failed to parse Claude response as JSON: {str(e)}")
+                    
+                except Exception as api_error:
+                    print(f"Error with Anthropic API: {str(api_error)}")
+                    # Fall through to next fallback
         
         # Fallback to OpenAI if available
         openai_api_key = os.getenv("OPENAI_API_KEY")

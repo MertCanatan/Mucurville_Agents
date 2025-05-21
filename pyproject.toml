@@ -8,7 +8,7 @@ version = "0.1.0"
 description = "Multi-agent system for schedule optimization"
 readme = "README.md"
 requires-python = ">=3.8"
-license = {text = "MIT"}
+license = "MIT"
 authors = [
     {name = "Mucurville Team"},
 ]
@@ -26,7 +26,35 @@ dependencies = [
     "geopy>=2.3.0",
     "requests>=2.31.0",
     "langchain>=0.1.0",
+    "anthropic>=0.18.0",
 ]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0.0",
+    "black>=23.0.0",
+    "isort>=5.12.0",
+    "mypy>=1.0.0",
+    "pylint>=2.17.0",
+]
+
+[tool.setuptools]
+packages = ["mucurville_agents"]
+
+[tool.setuptools.package-dir]
+"" = "."
+
+[tool.black]
+line-length = 88
+target-version = ["py38"]
+include = '\.pyi?$'
+
+[tool.isort]
+profile = "black"
+line_length = 88
+multi_line_output = 3
+include_trailing_comma = true
+use_parentheses = true
 
 [project.optional-dependencies]
 dev = [

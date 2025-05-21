@@ -1,12 +1,12 @@
 # agent3.py — Reasoner Agent
 import os
-from datetime import datetime, timedelta
-from typing import Dict, List, Any, Optional, Union, Iterator
+from typing import Dict, List, Any, Optional
 from pydantic import BaseModel, Field, field_validator
 from langchain.chains import LLMChain
 from langchain.prompts import PromptTemplate
 from langchain_core.runnables import Runnable, RunnableConfig
 from langchain_core.outputs import LLMResult
+from typing import Any, Dict, List, Optional, Union, Iterator
 from langchain_core.callbacks.manager import CallbackManagerForLLMRun, AsyncCallbackManagerForLLMRun
 import json
 from dotenv import load_dotenv
@@ -36,7 +36,7 @@ class GMILLM(Runnable):
         **kwargs: Any,
     ) -> str:
         """
-        Call the GMI Cloud API with the given prompt.
+        Call the GMI Cloud API with the given prompt, falling back to Claude 3.5 Sonnet if needed.
         
         Args:
             prompt: The prompt to send to the model
@@ -50,10 +50,11 @@ class GMILLM(Runnable):
         import requests
         import re
         
-        # Get API key from environment
-        api_key = os.getenv('GMI_API_KEY')
+        # Get API keys from environment
+        gmi_api_key = os.getenv('GMI_API_KEY')
+        anthropic_api_key = os.getenv('ANTHROPIC_API_KEY')
         
-        # Prepare mock response for when API key is not available
+        # Prepare mock response for when no API keys are available
         mock_response = {
             "optimized_schedule": [
                 {
@@ -69,7 +70,7 @@ class GMILLM(Runnable):
                     "location": "Grocery Store"
                 }
             ],
-            "feedback": "This is a mock response. Please set GMI_API_KEY to use the real service.",
+            "feedback": "This is a mock response. Please set either GMI_API_KEY or ANTHROPIC_API_KEY to use the real service.",
             "adjustments": {
                 "total_travel_time_saved": 0,
                 "constraints_violated": [],
@@ -77,112 +78,183 @@ class GMILLM(Runnable):
             }
         }
         
-        if not api_key:
-            print("Warning: GMI_API_KEY not set, using mock response")
+        # If no API keys are available, return mock response
+        if not gmi_api_key and not anthropic_api_key:
+            print("Warning: Neither GMI_API_KEY nor ANTHROPIC_API_KEY is set, using mock response")
             return json.dumps(mock_response)
             
-        # Prepare the API request
-        headers = {
-            "Authorization": f"Bearer {api_key}",
-            "Content-Type": "application/json"
-        }
-        
-        # Prepare the payload with model and messages
-        payload = {
-            "model": "meta-llama/Llama-4-Maverick-17B-128E-Instruct",
-            "messages": [
-                {"role": "system", "content": "You are a helpful assistant that helps with schedule optimization."},
-                {"role": "user", "content": prompt}
-            ],
-            "temperature": kwargs.get('temperature', self.temperature),
-            "max_tokens": kwargs.get('max_tokens', self.max_tokens),
-            "top_p": kwargs.get('top_p', self.top_p),
-            "response_format": {"type": "json_object"}
-        }
-        
-        # Add stop words if provided
-        if stop:
-            payload["stop"] = stop
-        
-        try:
-            # Make the API request
-            response = requests.post(
-                "https://api.gmi-serving.com/v1/chat/completions",
-                headers=headers,
-                json=payload,
-                timeout=30
-            )
-            response.raise_for_status()
-            
-            # Parse the response
-            response_json = response.json()
-            print(f"GMI API Raw Response: {json.dumps(response_json, indent=2)}")
-            
-            if "choices" in response_json and len(response_json["choices"]) > 0:
-                choice = response_json["choices"][0]
+        # Try GMI Cloud first if API key is available
+        if gmi_api_key:
+            try:
+                print("Attempting to use GMI Cloud API...")
+                # Prepare the API request
+                headers = {
+                    "Authorization": f"Bearer {gmi_api_key}",
+                    "Content-Type": "application/json"
+                }
                 
-                # Extract content based on response format
-                if "message" in choice and "content" in choice["message"]:
-                    content = choice["message"]["content"]
-                elif "text" in choice:
-                    content = choice["text"]
-                elif "content" in choice:
-                    content = choice["content"]
-                else:
-                    print("Unexpected response format - no message, text, or content in choices")
-                    return json.dumps(mock_response)
+                # Prepare the payload with model and messages
+                payload = {
+                    "model": "meta-llama/Llama-4-Maverick-17B-128E-Instruct",
+                    "messages": [
+                        {"role": "system", "content": "You are a helpful assistant that helps with schedule optimization. Always respond with valid JSON."},
+                        {"role": "user", "content": prompt}
+                    ],
+                    "temperature": kwargs.get('temperature', self.temperature),
+                    "max_tokens": kwargs.get('max_tokens', self.max_tokens),
+                    "top_p": kwargs.get('top_p', self.top_p),
+                    "response_format": {"type": "json_object"}
+                }
                 
-                print(f"Extracted content: {content}")
+                # Add stop words if provided
+                if stop:
+                    payload["stop"] = stop
                 
-                # Try to parse the content as JSON if it's a string
-                try:
-                    if isinstance(content, str):
-                        # Try to extract JSON from markdown code blocks
-                        json_match = re.search(r'```(?:json\n)?({.*?})```', content, re.DOTALL)
-                        if json_match:
-                            json_str = json_match.group(1).strip()
-                            print(f"Extracted JSON from markdown: {json_str}")
-                            return json_str
-                        
-                        # If no markdown, try to find JSON object directly
-                        json_match = re.search(r'({.*})', content, re.DOTALL)
-                        if json_match:
-                            json_str = json_match.group(1).strip()
-                            print(f"Extracted JSON from text: {json_str}")
-                            return json_str
-                        
-                        # If still no JSON, try to parse the entire content
-                        print("Trying to parse entire content as JSON")
-                        return content
+                # Make the API request
+                response = requests.post(
+                    "https://api.gmi-serving.com/v1/chat/completions",
+                    headers=headers,
+                    json=payload,
+                    timeout=10  # Reduced from 30 to 10 seconds
+                )
+                response.raise_for_status()
+                
+                # Parse the response
+                response_json = response.json()
+                print(f"GMI API Raw Response: {json.dumps(response_json, indent=2)}")
+                
+                if "choices" in response_json and len(response_json["choices"]) > 0:
+                    choice = response_json["choices"][0]
                     
-                    # If content is already a dict, return it as JSON string
-                    if isinstance(content, dict):
-                        return json.dumps(content)
+                    # Extract content based on response format
+                    if "message" in choice and "content" in choice["message"]:
+                        content = choice["message"]["content"]
+                    elif "text" in choice:
+                        content = choice["text"]
+                    elif "content" in choice:
+                        content = choice["content"]
+                    else:
+                        print("Unexpected response format - no message, text, or content in choices")
+                        raise ValueError("Unexpected response format from GMI API")
+                    
+                    print(f"Extracted content: {content}")
+                    
+                    # Try to parse the content as JSON if it's a string
+                    try:
+                        if isinstance(content, str):
+                            # Try to extract JSON from markdown code blocks
+                            json_match = re.search(r'```(?:json\n)?({.*?})```', content, re.DOTALL)
+                            if json_match:
+                                json_str = json_match.group(1).strip()
+                                print(f"Extracted JSON from markdown: {json_str}")
+                                return json_str
+                            
+                            # If no markdown, try to find JSON object directly
+                            json_match = re.search(r'({.*})', content, re.DOTALL)
+                            if json_match:
+                                json_str = json_match.group(1).strip()
+                                print(f"Extracted JSON from text: {json_str}")
+                                return json_str
+                            
+                            # If still no JSON, try to parse the entire content
+                            print("Trying to parse entire content as JSON")
+                            return content
                         
-                except (json.JSONDecodeError, AttributeError) as je:
-                    print(f"Failed to parse JSON content: {str(je)}")
-                    print(f"Content that failed to parse: {content}")
-                    # Return mock response if parsing fails
-                    return json.dumps(mock_response)
+                        # If content is already a dict, return it as JSON string
+                        if isinstance(content, dict):
+                            return json.dumps(content)
+                            
+                    except (json.JSONDecodeError, AttributeError) as je:
+                        print(f"Failed to parse JSON content: {str(je)}")
+                        print(f"Content that failed to parse: {content}")
+                        raise ValueError(f"Failed to parse JSON response: {str(je)}")
+                    
+                    return content
                 
-                return content
-            
-            print("No choices in response")
-            return json.dumps(mock_response)
-            
-        except requests.exceptions.RequestException as e:
-            print(f"Error calling GMI API: {str(e)}")
-            # Return mock response on error
-            return json.dumps(mock_response)
-        except json.JSONDecodeError as je:
-            print(f"Failed to parse JSON response: {str(je)}")
-            print(f"Response text: {response.text}")
-            # Return mock response on JSON decode error
-            return json.dumps(mock_response)
-        except Exception as e:
-            print(f"Error processing API response: {str(e)}")
-            # Return mock response on any other error
-            return json.dumps(mock_response)
+                print("No choices in response")
+                raise ValueError("No choices in response from GMI API")
+                
+            except Exception as e:
+                print(f"Error with GMI API, falling back to Claude: {str(e)}")
+                # Fall through to Claude if GMI fails
+        
+        # If we get here, either GMI failed or we're using Claude as primary
+        if anthropic_api_key:
+            try:
+                print("Falling back to Anthropic Claude 3.5 Sonnet...")
+                try:
+                    from anthropic import Anthropic
+                except ImportError:
+                    print("anthropic package not found. Installing...")
+                    import sys
+                    import subprocess
+                    subprocess.check_call([sys.executable, "-m", "pip", "install", "anthropic"])
+                    from anthropic import Anthropic
+                
+                client = Anthropic(api_key=anthropic_api_key)
+                
+                # Format the prompt for Claude
+                system_prompt = """You are a helpful assistant that helps with schedule optimization. 
+                Please respond with a valid JSON object containing an optimized schedule.
+                The response should include:
+                - optimized_schedule: List of scheduled tasks with task_id, start_time, end_time, and location
+                - feedback: A brief explanation of the optimization
+                - adjustments: Any adjustments made to the schedule
+                
+                Only return the JSON object, no other text or markdown formatting."""
+                
+                try:
+                    response = client.messages.create(
+                        model="claude-3-5-sonnet-20240620",
+                        max_tokens=2000,
+                        temperature=0.7,
+                        system=system_prompt,
+                        messages=[
+                            {"role": "user", "content": prompt}
+                        ]
+                    )
+                    
+                    # Extract and clean the response
+                    content = response.content[0].text.strip()
+                    print(f"Claude raw response: {content[:500]}...")  # Print first 500 chars to avoid huge logs
+                    
+                    # Try to extract JSON if it's wrapped in markdown code blocks
+                    if '```json' in content:
+                        content = content.split('```json')[1].split('```')[0].strip()
+                    elif '```' in content:
+                        content = content.split('```')[1].split('```')[0].strip()
+                    
+                    # Validate the JSON
+                    try:
+                        parsed = json.loads(content)
+                        print("Successfully parsed Claude response as JSON")
+                        return json.dumps(parsed)  # Return as string to be consistent
+                    except json.JSONDecodeError as je:
+                        print(f"Failed to parse Claude response as JSON: {str(je)}")
+                        print(f"Content that failed to parse: {content[:500]}...")
+                        # Try to extract just the JSON object if possible
+                        try:
+                            json_match = re.search(r'({.*})', content, re.DOTALL)
+                            if json_match:
+                                print("Extracted JSON from response")
+                                return json_match.group(1).strip()
+                        except Exception as e:
+                            print(f"Error extracting JSON from response: {str(e)}")
+                        
+                        # If we can't parse the response, raise an error
+                        raise ValueError(f"Failed to parse Claude response as JSON: {str(je)}")
+                    
+                except Exception as api_error:
+                    print(f"Error calling Claude API: {str(api_error)}")
+                    raise
+                
+            except Exception as e:
+                print(f"Error initializing Claude client: {str(e)}")
+                # Fall through to mock response
+        
+        # If we get here, all API calls failed
+        print("All API calls failed, using mock response")
+        return json.dumps(mock_response)
     
     # Required for Runnable interface
     def invoke(self, input: Union[str, Dict, Any], config: Optional[RunnableConfig] = None, **kwargs) -> Any:
@@ -356,9 +428,9 @@ def run_reasoner_agent(state: Dict[str, Any]) -> Dict[str, Any]:
     # Initialize the GMI LLM
     llm = GMILLM()
     
-    # Call the GMI LLM
-    print("\nCalling GMI API...")
     try:
+        # Call the GMI LLM
+        print("\nCalling GMI API...")
         response = llm._call(prompt)
         print(f"\n=== Raw API Response ===\n{response}\n")
         
@@ -376,166 +448,42 @@ def run_reasoner_agent(state: Dict[str, Any]) -> Dict[str, Any]:
                     cleaned_response = cleaned_response[:-3]
                 cleaned_response = cleaned_response.strip()
                 
-                # Parse the JSON response
-                try:
-                    result = json.loads(cleaned_response)
-                except json.JSONDecodeError as e:
-                    print(f"Failed to parse response as JSON: {e}")
-                    print(f"Response content: {response}")
-                    result = {}
-            except Exception as e:
-                print(f"Error processing response: {e}")
-                result = {}
+                # Parse the JSON
+                result = json.loads(cleaned_response)
+            except json.JSONDecodeError as e:
+                print(f"Failed to parse response as JSON: {e}")
+                print(f"Response content: {response}")
+                state['optimization_feedback'] = f"Error parsing optimization response: {e}"
+                state['optimization_adjustments'] = {"error": str(e)}
+                state['current_agent'] = 'reasoner'
+                state['converged'] = True
+                return state
         else:
-            print(f"Unexpected response type: {type(response)}")
-            result = {}
-            
-        # If we have a valid result with optimized_schedule
-        if result and 'optimized_schedule' in result:
-            optimized_schedule = result['optimized_schedule']
-            
-            # Ensure all tasks are included in the schedule
-            scheduled_task_ids = {item['task_id'] for item in optimized_schedule if 'task_id' in item}
-            all_task_ids = {task['id'] for task in tasks if 'id' in task}
-            missing_task_ids = all_task_ids - scheduled_task_ids
-            
-            if missing_task_ids:
-                print(f"Warning: Some tasks were not scheduled: {missing_task_ids}")
-                # Add missing tasks to the schedule with default times
-                current_time = datetime.strptime("09:00", "%H:%M").time()
-                
-                for task_id in missing_task_ids:
-                    task = next((t for t in tasks if t.get('id') == task_id), None)
-                    if task:
-                        duration = task.get('duration_minutes', 60)
-                        location = task.get('location', {}).get('name', 'Unknown Location')
-                        
-                        # Calculate end time
-                        start_dt = datetime.combine(datetime.today(), current_time)
-                        end_dt = start_dt + timedelta(minutes=duration)
-                        
-                        optimized_schedule.append({
-                            'task_id': task_id,
-                            'start_time': current_time.strftime("%H:%M"),
-                            'end_time': end_dt.time().strftime("%H:%M"),
-                            'location': location
-                        })
-                        
-                        # Update current time for next task (add 15 min break)
-                        current_time = (end_dt + timedelta(minutes=15)).time()
-                        
-                        print(f"Added missing task to schedule: {task['name']} at {location}")
-            
-            state['optimized_schedule'] = optimized_schedule
-            state['optimization_feedback'] = result.get('feedback', 'Optimization completed with fallback scheduling')
+            raise ValueError(f"Unexpected response type: {type(response).__name__}")
+        
+        # Update the state with the optimized schedule
+        if 'optimized_schedule' in result:
+            state['optimized_schedule'] = result['optimized_schedule']
+            state['optimization_feedback'] = result.get('feedback', 'Optimization completed successfully')
             state['optimization_adjustments'] = result.get('adjustments', {})
-            
-            # Debug: Print the optimized schedule
-            print("\n=== Debug: Optimized Schedule ===")
-            print(f"Type: {type(optimized_schedule)}")
-            if isinstance(optimized_schedule, list):
-                print(f"Length: {len(optimized_schedule)}")
-                if optimized_schedule:
-                    print(f"First item type: {type(optimized_schedule[0])}")
-                    print(f"First item keys: {optimized_schedule[0].keys() if hasattr(optimized_schedule[0], 'keys') else 'N/A'}")
-            
-            # Convert the schedule to the expected format
-            if isinstance(optimized_schedule, list):
-                for item in optimized_schedule:
-                    if isinstance(item, dict) and 'task_id' in item and 'start_time' in item and 'end_time' in item:
-                        task_id = item['task_id']
-                        start_time = item['start_time']
-                        end_time = item['end_time']
-                        location = item.get('location', 'Unknown Location')
-                        print(f"Added schedule item: Task {task_id} at {location}")
-            
-            # Update the current agent and mark as converged
-            state['current_agent'] = 'reasoner'
-            state['converged'] = True
-            return state
-            
-    except Exception as e:
-        print(f"Error calling GMI API: {e}")
-        
-    # Fallback to a simple scheduling algorithm if API call fails or no valid schedule
-    print("\n=== Using fallback scheduling ===")
-    optimized_schedule = []
+            print("Optimization completed successfully")
+            print(f"Optimized schedule: {json.dumps(result['optimized_schedule'], indent=2)}")
+        else:
+            state['optimization_feedback'] = "Optimization response missing 'optimized_schedule' field"
+            state['optimization_adjustments'] = {"error": "Missing optimized_schedule in response"}
+            print(f"Unexpected response format: {result}")
     
-    try:
-        # Debug print to verify datetime import
-        print(f"Debug - Current datetime: {datetime.now()}")
-        print(f"Debug - Current date: {datetime.today()}")
-        
-        current_time = datetime.strptime("09:00", "%H:%M").time()
-        print(f"Debug - Parsed start time: {current_time}")
-        
-        # Sort tasks by priority (high first) and then by duration (shortest first)
-        sorted_tasks = sorted(
-            [t for t in tasks if t.get("id")],
-            key=lambda x: (
-                0 if x.get("priority") == "high" else 1 if x.get("priority") == "medium" else 2,
-                x.get("duration_minutes", 0)
-            )
-        )
-        
-        print(f"Debug - Sorted tasks: {[t['id'] for t in sorted_tasks]}")
-        
-        # Simple round-robin scheduling
-        for task in sorted_tasks:
-            task_id = task["id"]
-            duration = task.get("duration_minutes", 30)
-            location = task.get("location", {}).get("name", "Unknown Location")
-            
-            # Debug print before datetime operations
-            print(f"Debug - Processing task {task_id} with duration {duration} minutes")
-            print(f"Debug - Current time before processing: {current_time}")
-            
-            # Combine with today's date for timedelta operations
-            start_dt = datetime.combine(datetime.today(), current_time)
-            end_dt = start_dt + timedelta(minutes=duration)
-            
-            # Format times for the schedule
-            start_time_str = current_time.strftime("%H:%M")
-            end_time_str = end_dt.time().strftime("%H:%M")
-            
-            print(f"Debug - Scheduling task {task_id} from {start_time_str} to {end_time_str} at {location}")
-            
-            optimized_schedule.append({
-                "task_id": task_id,
-                "start_time": start_time_str,
-                "end_time": end_time_str,
-                "location": location
-            })
-            
-            # Add 15-minute break between tasks
-            current_time = (end_dt + timedelta(minutes=15)).time()
-            print(f"Debug - Next task will start at: {current_time}")
-        
-        state['optimized_schedule'] = optimized_schedule
-        state['optimization_feedback'] = "Used fallback scheduling. All tasks have been scheduled with a simple round-robin algorithm."
-        state['optimization_adjustments'] = {
-            "total_travel_time_saved": 0,
-            "constraints_violated": ["api_unavailable"],
-            "preferences_met": []
-        }
-        
     except Exception as e:
-        print(f"Error in fallback scheduling: {e}")
+        print(f"Error during optimization: {e}")
         import traceback
         traceback.print_exc()
-        
-        # Set a default schedule if there's an error
-        state['optimized_schedule'] = []
-        state['optimization_feedback'] = f"Error in fallback scheduling: {str(e)}"
-        state['optimization_adjustments'] = {
-            "error": str(e),
-            "constraints_violated": ["scheduling_error"],
-            "preferences_met": []
-        }
+        state['optimization_feedback'] = f"Error during optimization: {e}"
+        state['optimization_adjustments'] = {"error": str(e)}
     
     # Update the current agent and mark as converged
     state['current_agent'] = 'reasoner'
     state['converged'] = True
+    
     return state
 
 def optimize_schedule(request: ScheduleOptimizationRequest) -> ScheduleOptimizationResponse:
