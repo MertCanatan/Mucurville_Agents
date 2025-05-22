@@ -1,4 +1,13 @@
 *.exe
-.env
 __pycache__*
 keys.py
+*.pyc
+*.pyo
+*.pyd
+.Python
+env/
+venv/
+ENV/
+.env.bak
+.env.example
+.env

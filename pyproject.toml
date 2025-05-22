@@ -1,14 +1,96 @@
+[build-system]
+requires = ["setuptools>=42.0"]
+build-backend = "setuptools.build_meta"
+
 [project]
 name = "mucurville-agents"
 version = "0.1.0"
-description = "Add your description here"
+description = "Multi-agent system for schedule optimization"
 readme = "README.md"
-requires-python = ">=3.13"
+requires-python = ">=3.8"
+license = "MIT"
+authors = [
+    {name = "Mucurville Team"},
+]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+]
 dependencies = [
-    "geopy>=2.4.1",
-    "ipykernel>=6.29.5",
-    "langchain[anthropic]>=0.3.25",
-    "langgraph>=0.4.5",
-    "polyline>=2.0.2",
-    "python-dotenv>=1.1.0",
+    "langgraph>=0.0.1",
+    "pydantic>=2.0.0",
+    "python-dotenv>=1.0.0",
+    "geopy>=2.3.0",
+    "requests>=2.31.0",
+    "langchain>=0.1.0",
+    "anthropic>=0.18.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0.0",
+    "black>=23.0.0",
+    "isort>=5.12.0",
+    "mypy>=1.0.0",
+    "pylint>=2.17.0",
+]
+
+[tool.setuptools]
+packages = ["mucurville_agents"]
+
+[tool.setuptools.package-dir]
+"" = "."
+
+[tool.black]
+line-length = 88
+target-version = ["py38"]
+include = '\.pyi?$'
+
+[tool.isort]
+profile = "black"
+line_length = 88
+multi_line_output = 3
+include_trailing_comma = true
+use_parentheses = true
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0.0",
+    "black>=23.0.0",
+    "isort>=5.12.0",
+    "mypy>=1.0.0",
+    "pylint>=2.17.0",
+]
+
+[tool.black]
+line-length = 88
+target-version = ["py38"]
+include = '\.pyi?$'
+
+[tool.isort]
+profile = "black"
+line_length = 88
+multi_line_output = 3
+include_trailing_comma = true
+use_parentheses = true
+
+[tool.mypy]
+python_version = "3.8"
+warn_return_any = true
+disallow_untyped_defs = true
+check_untyped_defs = true
+no_implicit_optional = true
+
+[tool.pylint]
+max-line-length = 88
+disable = [
+    "C0114",  # missing-module-docstring
+    "C0115",  # missing-class-docstring
+    "C0116",  # missing-function-docstring
+    "R0903",  # too-few-public-methods
+    "R0913",  # too-many-arguments
+    "W1203",  # logging-fstring-interpolation
 ]
